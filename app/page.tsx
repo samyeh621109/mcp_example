@@ -12,17 +12,18 @@ import {
   Title,
   Tooltip,
   Legend,
+  ChartOptions, // Import ChartOptions for better typing if needed
 } from 'chart.js';
 
 // 確保所有必要的組件都已註冊
 ChartJS.register(
-  CategoryScale, 
-  LinearScale, 
-  BarElement, 
-  PointElement, 
-  LineElement, 
-  Title, 
-  Tooltip, 
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
   Legend
 );
 
@@ -48,7 +49,7 @@ interface AnalysisResult {
 function ChartVisualization({ chartData }: { chartData: AnalysisResult['chartData'] }) {
   // 檢查是否有圖表數據
   if (!chartData) return <div className="text-center p-4">尚無可視化數據</div>;
-  
+
   // 設置圖表主題顏色
   const colors = {
     bar1: 'rgba(75, 192, 192, 0.6)',
@@ -82,7 +83,19 @@ function ChartVisualization({ chartData }: { chartData: AnalysisResult['chartDat
     pointRadius: dataset.data.map(point => Math.max(5, Math.min(15, point.size || 5))),
     pointHoverRadius: dataset.data.map(point => Math.max(7, Math.min(20, (point.size || 5) + 2))),
   }));
-  
+
+  // helper function for tick formatting to avoid repetition
+  const formatCurrencyTick = (value: number | string): string | number => {
+      const numericValue = value as number; // Type assertion
+      if (numericValue >= 1000000) {
+          return `${(numericValue / 1000000).toFixed(1)}M`;
+      }
+      if (numericValue >= 1000) {
+          return `${(numericValue / 1000).toFixed(0)}K`;
+      }
+      return numericValue; // Return original number for values < 1000
+  };
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
       <div className="bg-white p-4 rounded-lg shadow">
@@ -102,7 +115,7 @@ function ChartVisualization({ chartData }: { chartData: AnalysisResult['chartDat
             options={{
               responsive: true,
               maintainAspectRatio: false,
-              plugins: { 
+              plugins: {
                 legend: { display: false },
                 tooltip: {
                   callbacks: {
@@ -111,14 +124,10 @@ function ChartVisualization({ chartData }: { chartData: AnalysisResult['chartDat
                 }
               },
               scales: {
-                y: { 
+                y: {
                   title: { display: true, text: '銷售額' },
                   ticks: {
-                    callback: (value) => {
-                      if (value >= 1000000) return `${(value/1000000).toFixed(1)}M`;
-                      if (value >= 1000) return `${(value/1000).toFixed(0)}K`;
-                      return value;
-                    }
+                    callback: formatCurrencyTick // Use helper function
                   }
                 }
               },
@@ -144,7 +153,7 @@ function ChartVisualization({ chartData }: { chartData: AnalysisResult['chartDat
             options={{
               responsive: true,
               maintainAspectRatio: false,
-              plugins: { 
+              plugins: {
                 legend: { display: false },
                 tooltip: {
                   callbacks: {
@@ -153,14 +162,10 @@ function ChartVisualization({ chartData }: { chartData: AnalysisResult['chartDat
                 }
               },
               scales: {
-                y: { 
+                y: {
                   title: { display: true, text: '銷售額' },
-                  ticks: {
-                    callback: (value) => {
-                      if (value >= 1000000) return `${(value/1000000).toFixed(1)}M`;
-                      if (value >= 1000) return `${(value/1000).toFixed(0)}K`;
-                      return value;
-                    }
+                   ticks: {
+                    callback: formatCurrencyTick // Use helper function
                   }
                 }
               },
@@ -168,7 +173,7 @@ function ChartVisualization({ chartData }: { chartData: AnalysisResult['chartDat
           />
         </div>
       </div>
-      
+
       <div className="bg-white p-4 rounded-lg shadow">
         <h4 className="text-md font-semibold mb-2">產品銷售額分布 (按區域)</h4>
         <div className="h-64">
@@ -185,7 +190,7 @@ function ChartVisualization({ chartData }: { chartData: AnalysisResult['chartDat
                 tooltip: {
                   callbacks: {
                     label: (context) => {
-                      const point = context.raw;
+                      const point = context.raw as { x: string; y: number; size?: number }; // Assert point type
                       return `${context.dataset.label}: ${point.x} - ${point.y.toLocaleString()} 元`;
                     }
                   }
@@ -201,11 +206,7 @@ function ChartVisualization({ chartData }: { chartData: AnalysisResult['chartDat
                 y: {
                   title: { display: true, text: '銷售額' },
                   ticks: {
-                    callback: (value) => {
-                      if (value >= 1000000) return `${(value/1000000).toFixed(1)}M`;
-                      if (value >= 1000) return `${(value/1000).toFixed(0)}K`;
-                      return value;
-                    }
+                    callback: formatCurrencyTick // Use helper function
                   }
                 }
               },
@@ -217,7 +218,7 @@ function ChartVisualization({ chartData }: { chartData: AnalysisResult['chartDat
           />
         </div>
       </div>
-      
+
       <div className="bg-white p-4 rounded-lg shadow">
         <h4 className="text-md font-semibold mb-2">銷售額時間趨勢</h4>
         <div className="h-64">
@@ -246,23 +247,19 @@ function ChartVisualization({ chartData }: { chartData: AnalysisResult['chartDat
                   mode: 'index',
                   intersect: false,
                   callbacks: {
-                    label: (context) => `${context.dataset.label}: ${context.parsed.y.toLocaleString()} 元`
+                    label: (context) => `${context.dataset.label}: ${(context.parsed.y as number).toLocaleString()} 元` // Assert parsed.y
                   }
                 }
               },
               scales: {
-                x: { 
+                x: {
                   title: { display: true, text: '日期' },
                   grid: { display: false }
                 },
-                y: { 
+                y: {
                   title: { display: true, text: '銷售額' },
                   ticks: {
-                    callback: (value) => {
-                      if (value >= 1000000) return `${(value/1000000).toFixed(1)}M`;
-                      if (value >= 1000) return `${(value/1000).toFixed(0)}K`;
-                      return value;
-                    }
+                    callback: formatCurrencyTick // Use helper function
                   }
                 }
               },
@@ -359,7 +356,7 @@ export default function HomePage() {
       {analysisResult && (
         <div className="mt-8">
           <h2 className="text-xl font-bold mb-4">分析報告</h2>
-          
+
           {/* 圖表區域 */}
           {analysisResult.chartData && (
             <div className="mb-8">
@@ -367,7 +364,7 @@ export default function HomePage() {
               <ChartVisualization chartData={analysisResult.chartData} />
             </div>
           )}
-          
+
           {/* 報告區域 */}
           <div className="border p-4 rounded shadow-md bg-gray-100">
             <h3 className="text-lg font-semibold">總結</h3>
@@ -403,7 +400,7 @@ export default function HomePage() {
             <h3 className="text-lg font-semibold">未來機會</h3>
             <p className="mb-4">{analysisResult.reportData.未來機會}</p>
           </div>
-          
+
           {/* 推理過程區域 */}
           <div className="mt-8">
             <h2 className="text-xl font-bold mb-4">分析推理過程</h2>
@@ -412,12 +409,12 @@ export default function HomePage() {
                 <div key={index} className="border p-4 rounded shadow-md bg-gray-100">
                   <h3 className="text-lg font-semibold">{item.stage} 提示詞:</h3>
                   <pre className="whitespace-pre-wrap text-sm mt-2 p-2 bg-white rounded">
-                    {item.prompt.slice(0, 500) + (item.prompt.length > 500 ? '...' : '')}
+                    {item.prompt.slice(0, 500) + (item.prompt.length > 500 ? '\n...(內容過長已截斷)' : '')}
                   </pre>
                   <h3 className="text-lg font-semibold mt-4">{item.stage} 結果:</h3>
                   <pre className="whitespace-pre-wrap text-sm mt-2 p-2 bg-white rounded">
-                    {JSON.stringify(analysisResult.intermediateResults[index]?.result, null, 2).slice(0, 500) + 
-                     (JSON.stringify(analysisResult.intermediateResults[index]?.result, null, 2).length > 500 ? '...' : '')}
+                    {JSON.stringify(analysisResult.intermediateResults[index]?.result, null, 2).slice(0, 500) +
+                     (JSON.stringify(analysisResult.intermediateResults[index]?.result, null, 2).length > 500 ? '\n...(內容過長已截斷)' : '')}
                   </pre>
                 </div>
               ))}
