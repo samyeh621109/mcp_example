@@ -209,7 +209,7 @@ async function processWithGemini(prompt: string, stage: string): Promise<MCPCont
 
     // 4. 發送請求
     const result = await model.generateContent({
-      contents: [{ parts: [{ text: prompt }] }],
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
       generationConfig,
       safetySettings,
     });
