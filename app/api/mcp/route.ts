@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import ExcelJS from 'exceljs';
 import { Readable } from 'stream';
+import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
 
 // MCP context interface
 interface MCPContext {
@@ -164,7 +165,7 @@ function createResultGenerationPrompt(mcpContext: MCPContext): string {
   `;
 }
 
-// Call Gemini API
+// Call Gemini API (使用官方套件進行重構)
 async function processWithGemini(prompt: string, stage: string): Promise<MCPContext | null> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -173,74 +174,72 @@ async function processWithGemini(prompt: string, stage: string): Promise<MCPCont
 
   console.log(`開始處理 ${stage} 階段...`);
 
-  // *** 修改點：將 apiKey 附加到 URL 作為查詢參數 'key' ***
-  const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent?key=${apiKey}`;
-
   try {
-    const response = await fetch(apiUrl, { // *** 使用修改後的 apiUrl ***
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        // *** 移除 Authorization Header ***
-        // 'Authorization': `Bearer ${apiKey}`, // <--- 移除這一行
+    // 1. 初始化 Generative Model
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: 'models/gemini-2.0-flash' }); // 指定模型為 gemini-2.0-flash
+
+    // 2. 設定生成配置
+    const generationConfig = {
+      temperature: 0.2,
+      topP: 0.95,
+      topK: 40,
+      maxOutputTokens: 8192,
+    };
+
+    // 3. 設定安全設定
+    const safetySettings = [
+      {
+        category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+        threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
       },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.2,
-          topP: 0.95,
-          topK: 40,
-          maxOutputTokens: 8192,
-        },
-      }),
+      {
+        category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+        threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+      },
+      {
+        category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+        threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+      },
+      {
+        category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+        threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+      },
+    ];
+
+    // 4. 發送請求
+    const result = await model.generateContent({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig,
+      safetySettings,
     });
 
-    if (!response.ok) {
-      let errorData;
-      try {
-        // 嘗試解析 JSON 錯誤訊息
-        errorData = await response.json();
-        console.error('Gemini API Error Response:', errorData);
-      } catch (parseError) {
-        // 如果無法解析 JSON，則讀取文本錯誤訊息
-        const errorText = await response.text();
-        console.error('Gemini API Error Response (Non-JSON):', errorText);
-        throw new Error(`Gemini API 錯誤: ${response.status} ${response.statusText}. 回應: ${errorText}`);
-      }
-      // 使用解析出的錯誤訊息，如果存在
-      throw new Error(`Gemini API 錯誤: ${errorData?.error?.message || response.statusText || '未知錯誤'}`);
-    }
+    const response = result.response;
+    const resultText = response.text(); // 獲取回應文本
 
-    const result = await response.json();
-
-    // *** 增強：更可靠地提取回應文本 ***
-    const resultText = result?.candidates?.[0]?.content?.parts?.[0]?.text;
     if (resultText === undefined || resultText === null) {
-         console.error('Gemini API Response Structure:', JSON.stringify(result, null, 2));
-         throw new Error('Gemini API 未返回有效的回應內容 (candidates[0].content.parts[0].text is missing)');
+      console.error('Gemini API Response Structure:', JSON.stringify(response.candidates, null, 2));
+      throw new Error('Gemini API 未返回有效的回應內容');
     }
 
-
-    // *** 增強：處理可能包含在 ```json ... ``` 中的 JSON ***
+    // 5. 處理可能包含在 ```json ... ``` 中的 JSON
     let jsonString = resultText.trim();
     if (jsonString.startsWith('```json')) {
-        jsonString = jsonString.substring(7); // 移除 ```json
-        if (jsonString.endsWith('```')) {
-            jsonString = jsonString.substring(0, jsonString.length - 3); // 移除結尾的 ```
-        }
-        jsonString = jsonString.trim(); // 再次 trim
+      jsonString = jsonString.substring(7);
+      if (jsonString.endsWith('```')) {
+        jsonString = jsonString.substring(0, jsonString.length - 3);
+      }
+      jsonString = jsonString.trim();
     } else if (jsonString.startsWith('{') && jsonString.endsWith('}')) {
-        // 假設是純 JSON
+      // 假設是純 JSON
     } else {
-        // 嘗試從文本中尋找 JSON 區塊
-         const jsonMatch = jsonString.match(/(\{[\s\S]*\})/);
-         if (!jsonMatch) {
-           console.error('無法從回應中提取 JSON:', jsonString.slice(0, 500));
-           throw new Error('Gemini 回應未包含可辨識的 JSON 結構');
-         }
-         jsonString = jsonMatch[1];
+      const jsonMatch = jsonString.match(/(\{[\s\S]*\})/);
+      if (!jsonMatch) {
+        console.error('無法從回應中提取 JSON:', jsonString.slice(0, 500));
+        throw new Error('Gemini 回應未包含可辨識的 JSON 結構');
+      }
+      jsonString = jsonMatch[1];
     }
-
 
     try {
       const parsedJson = JSON.parse(jsonString);
@@ -252,11 +251,10 @@ async function processWithGemini(prompt: string, stage: string): Promise<MCPCont
     }
   } catch (error: any) {
     console.error(`處理 ${stage} 階段失敗:`, error);
-    // 確保拋出的是 Error 物件
     if (error instanceof Error) {
-        throw error;
+      throw error;
     } else {
-        throw new Error(String(error));
+      throw new Error(String(error));
     }
   }
 }
